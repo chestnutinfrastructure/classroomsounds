@@ -1,25 +1,38 @@
 # Holly v6000 — Migration Plan
 **Classroom Sounds Ltd · Chestnut Holdings**
 Author: Daniell Lee (with Carson)
-Status: Draft architecture, pending sign-off
+Status: Draft architecture, side-by-side model confirmed, pending commercial gate
 Date: 2026-05-08
 
 ---
 
-## 0. Why this exists
+## 0. Framing — two separate products
 
-The current Holly stack (firmware v5091, Apps Script v56, admin v2.8.5) is a polling architecture. Devices POST every 60s; dashboards poll every 30s. It works at pilot scale but has three structural ceilings:
+Classroom Sounds runs **two parallel product lines** that share a brand and a developer, and nothing else:
 
-1. **Commands to the device are slow.** Config changes, room tests, reboots all wait for the next 60s POST cycle. A lockdown signal would average ~30 seconds late — unacceptable.
-2. **Apps Script + Google Sheets won't scale past ~100 devices.** Lock contention, the 6-minute execution limit, and CacheService's 100KB cap are already pressing constraints.
-3. **No native auth or RLS.** Token-based auth bolted onto Apps Script works for a pilot; it doesn't pass a school IT department's procurement review.
+**v5 = Trial / Proof-of-Concept.**
+Existing hardware in Lyppard and other early-access schools. Firmware v5091, Apps Script v56, admin v2.8.5, Google Sheets backend. **Not a commercial product. No paying customers.** Validates the core classroom-sounds idea: dB monitoring, calibration, LED feedback, behaviour-management value. Stays running until trial schools naturally sunset their devices. Receives bug-fix maintenance only — no new features. No migration path to v6 is planned; if a trial school later becomes a paying customer, they receive fresh v6 hardware and onboard cleanly into the new stack.
 
-v6000 is a clean-break rebuild of the backend with:
+**v6 = Launch Product.**
+The commercial product. Every paying school customer, from the first sale onwards, runs v6. New hardware, MQTT messaging over self-hosted Mosquitto, Supabase data plane, admin v3.0.0 on a separate URL, integrated Martyn's Law alerts (Lockdown / Invacuation / Evacuation / All Clear + Drill, publishable per-zone or fleet-wide). Designed from day one as compliance-grade infrastructure, not a behaviour-management novelty.
 
-- **Self-hosted Mosquitto** as the device messaging broker (TLS, persistent connections, retained messages).
-- **Supabase** as the data plane (Postgres + Auth + Realtime + Edge Functions).
-- **A small bridge service** glueing the two together.
+The two stacks never communicate. No shared data, no shared identity, no shared firmware, no shared backend. A v5 device is a different SKU from a v6 device. The development work documented in this plan is purely about building v6 — v5 is mentioned only to clarify what's deliberately out of scope.
+
+## 0a. Why the v5 architecture won't carry the commercial product
+
+The trial stack (polling devices, Apps Script + Sheets backend, token-bolted auth) has three structural ceilings that make it unsuitable as the foundation for a Protect-Duty-grade commercial product:
+
+1. **Commands to the device are slow.** Config changes, room tests, reboots all wait for the next 60s POST cycle. A lockdown signal would average ~30 seconds late — unacceptable for any safety-critical application.
+2. **Apps Script + Google Sheets won't scale past ~100 devices.** Lock contention, the 6-minute execution limit, and CacheService's 100KB cap are already pressing constraints at trial scale.
+3. **No native auth or row-level security.** Token-based auth bolted onto Apps Script works for a controlled trial; it doesn't pass a school IT department's procurement review and it doesn't satisfy the audit trail expectations of safety-critical buyers.
+
+v6 is therefore a clean-architecture build rather than an evolution:
+
+- **Self-hosted Mosquitto** as the device messaging broker (TLS, persistent connections, retained messages — solves the slow-command and reliability-during-incident problems).
+- **Supabase** as the data plane (Postgres + Auth + Realtime + Edge Functions — solves the scale, RLS, and procurement-acceptability problems).
+- **A small bridge service** gluing the two together.
 - **Firmware v6000** rewritten to use MQTT for both telemetry-out and commands-in.
+
 
 Plus a new safety-critical feature: **Martyn's Law alerts** (Lockdown / Invacuation / Evacuation / All Clear + Drill), publishable per-zone or fleet-wide.
 
@@ -469,49 +482,62 @@ Deno.serve({ port: 8443 }, async (req) => {
 
 ## 7. Dashboard changes
 
-**Admin dashboard (replaces admin_v2.8.5.html):**
-- Renamed `admin_v3.0.0.html` — semver bump signals the architectural change.
-- Auth: Supabase magic-link (passwordless) for school admins; admin@classroomsounds.co.uk for fleet admins.
+v6 dashboards are separate codebases from the v5 trial dashboards. v5's `admin_v2.8.5.html` and the existing staff dashboard remain deployed at `admin.classroomsounds.co.uk` for trial-fleet support. v6 dashboards ship on a new domain — `console.classroomsounds.co.uk` — chosen to reflect the SaaS-product positioning of the commercial line.
+
+**Admin v3.0.0 (`console.classroomsounds.co.uk`):**
+- Auth: Supabase magic-link (passwordless) for school admins; named fleet-admin role for Classroom Sounds internal staff.
 - Data: Supabase JS client with `realtime.subscribe()` on `holly.devices`, `holly.telemetry`, `holly.alert_events`. No polling. Updates appear within ~100ms of the underlying Postgres write.
 - New screens:
   - **Zones** — CRUD on `holly.zones`, drag-drop devices between zones.
   - **Alerts** — big buttons for the four states, scope selector (school / zone / device), drill toggle, reason field, two-factor confirmation modal (if school has it enabled).
   - **Active Incident** — when an alert is live, this screen takes over: shows scope, time since initiation, per-device ACK status, an All Clear button with confirmation.
   - **Incident history** — read-only audit view of all `alert_events` for the school, filterable by date / kind / scope.
-- Existing screens (Sites, Calibration, Global Analytics, Dispatch) preserved but rewired to Supabase queries.
+- Existing screens conceptually carried over from v2.8.x (Sites, Calibration, Global Analytics, Dispatch) reimplemented against Supabase — not ported file-for-file, since the underlying data shape changes.
 
-**Staff dashboard:**
-- Renamed `staff_v13.0.0.html`. Same arc: Supabase Realtime, no polling.
-- Adds an **alert banner** at the top of the page when an alert is live in the staff member's school — non-dismissible until All Clear.
-- Otherwise the per-device behaviour, leaderboards, etc. preserved.
+**Staff v13.0.0 (`console.classroomsounds.co.uk/staff` or subdomain — TBD with design partner):**
+- Same Supabase Realtime architecture, no polling.
+- Adds a non-dismissible alert banner at the top of the page when an alert is live in the staff member's school.
+- Per-device behaviour, leaderboards, etc. conceptually preserved from v12.x.
 
 ---
 
 ## 8. Rollout
 
-**Phase 0 — Standup (week 1):**
+There is **no cutover**, no dual-stack firmware, no data migration. The trial (v5) stack stays running independently and indefinitely; the v6 commercial stack is built greenfield alongside it. Three phases gate the v6 build.
+
+**Phase 0 — Standup (≤1 week of work, can run in parallel with the commercial gating below):**
 - Provision Hetzner CX21 (£5.83/mo, 2 vCPU, 4GB RAM). Install Docker, Mosquitto, Caddy (reverse proxy for ACME TLS).
 - Provision Supabase project (Pro tier from day one — £19/mo equivalent, gives us scheduled backups).
 - Apply database schema (§2) via Supabase migrations.
 - Stand up bridge service skeleton. Smoke-test publish/subscribe roundtrip.
+- Domain `console.classroomsounds.co.uk` reserved and pointed at a placeholder Vercel project.
 
-**Phase 1 — Dual-stack firmware (weeks 2–3):**
-- Cut Holly v5092 (NOT v6000 yet) that supports BOTH backends in parallel — Apps Script POSTs unchanged + MQTT connection for command receiving only. Flag-gated via NVS bool `use_new_backend`.
-- OTA-rollout v5092 to fleet. All devices now reachable via MQTT for commands while still POSTing to Apps Script for telemetry.
-- Bench-test alert publishing on a single bench device. Verify retained-message behaviour, reboot-mid-alert behaviour, ACK protocol.
+Phase 0 is cheap and low-risk — it stands up infrastructure that costs ~£25/mo to keep idle. Doing it early proves the architecture works and gives the design partner something tangible to be shown.
 
-**Phase 2 — Cutover (week 4):**
-- Cut Holly v6000 proper. Removes all Apps Script POST code. Pure MQTT.
-- Backfill historical data from Google Sheets into Postgres (one-shot migration script). Preserves history.
-- OTA-rollout v6000 to one pilot school first (Lyppard Grange or whichever you nominate). Monitor for 1 week.
-- If clean, OTA-rollout to the rest of the fleet.
+**Phase 1 — Bench-test on net-new hardware (1–2 weeks after Phase 0):**
+- Flash one or two SPARE Holly units (not from the trial fleet) with firmware v6000. They register against the new Supabase project, talk to the new Mosquitto broker, surface in admin v3.0.0.
+- Trial fleet completely unaffected. v5091 OTA manifest unchanged; v6000 uses a separate manifest URL at a separate path.
+- Verify the safety-critical paths: alert publishing, retained-message delivery to a freshly-rebooted device, NVS-held alert state surviving a hard power cycle, ACK protocol, two-factor confirmation, drill flagging.
+- Stress-test: 50 simulated devices via a load-generator publishing telemetry and heartbeats, confirm bridge throughput and Supabase write rate.
 
-**Phase 3 — Decommission (week 5):**
-- Apps Script project archived (not deleted — read-only kept for reference and historical reports).
-- Google Sheet downgraded to "historical archive" status. No new writes.
-- Vercel dashboards pointed at the new Supabase URLs.
+**Phase 2 — First commercial school (timed to the design-partner MAT's readiness):**
+- Onboard one paying or paying-intent school onto v6. Direct hardware delivery, captive-portal first-time setup using the new MQTT credential flow, manual zone configuration in admin v3.0.0.
+- Monitor closely for 2–4 weeks. Both technical metrics (broker uptime, message delivery, dashboard responsiveness) and operational metrics (admin task completion times, alert drill walk-throughs, support ticket volume).
+- If clean, open up to additional commercial customers. v6 becomes the live commercial product from this point onwards.
 
-**Total elapsed: 5 weeks** if everything goes well. Pad to 8 weeks for the bench-test surprises.
+**There is no Phase 3.** v5 trial stack continues unaffected. It receives bug-fix maintenance only — no v5 customer ever migrates to v6. When the trial naturally winds down (timing TBD), the Apps Script project gets archived and the Google Sheet becomes a read-only historical record. That's months or years away and isn't on the v6 critical path.
+
+**Realistic timeline.** Phase 0 can begin the day after the commercial gating decisions below resolve. Phase 1 can start a week after that. Phase 2 timing is bounded by the design partner's procurement cycle, not by engineering — expect 4–12 weeks between Phase 1 completion and first commercial install.
+
+## 8a. Commercial gating — must resolve BEFORE Phase 0 budget commitment
+
+The architecture and engineering work in this document is robust enough to commit to. The commercial assumptions underlying it are not yet validated. Three workstreams need to resolve before significant engineering or infrastructure spend goes ahead:
+
+1. **Product liability insurance quote.** Talk to a broker who's placed cover for safety-critical tech-in-schools. Without a realistic premium estimate, the unit economics of v6 are unknown. **Single highest-leverage commercial action.** 2–3 weeks of process.
+2. **First MAT design partner identified and engaged.** Pitch the dual-purpose (behaviour + alerts) vision to a multi-academy trust's central IT or safeguarding lead; secure non-binding commitment as design partner. They define what lockdown actually needs to do in their context, validate the price point, and become the first commercial reference. Parallel with the insurer work; 2–4 weeks.
+3. **Indemnity contract template.** Solicitor with schools-tech experience drafts the customer agreement explicitly stating: school retains primary responsibility for executing their Protect Duty plan; Holly is a communication aid; school carries out their own training and drills; Holly's sole obligation is to transmit alerts when triggered by an authorised user. Without this, the liability exposure is open-ended. £2–5k of legal time, 1–2 weeks once briefed.
+
+Phase 0 infrastructure work is cheap enough to start in parallel (£25/mo running cost while idle, half a day of ops effort). Phase 1 firmware and bridge engineering should not begin until all three commercial gates have at least one positive datapoint each — otherwise we risk building product against assumptions that don't hold.
 
 ---
 
@@ -596,12 +622,33 @@ Deno.serve({ port: 8443 }, async (req) => {
 
 ---
 
-## 12. Sign-off
+## 12. Sign-off and current status
 
-This document supersedes the "Phase 2 — Supabase migration" section of `Holly_Master_Context_Prompt_v4.md` once approved. The Master Prompt should be updated in the same PR that commits this plan.
+This document supersedes the "Phase 2 — Supabase migration" section of `Holly_Master_Context_Prompt_v4.md`. The Master Prompt should be updated in the same PR that touches this plan next.
 
-Awaiting:
-- [ ] Dan's sign-off on architecture
-- [ ] Decision on Mosquitto auth (passwords vs certs)
-- [ ] First pilot school nominated
-- [ ] Insurance conversation completed
+**Architecture decisions confirmed (in conversation, 2026-05-08):**
+- ☑ Hybrid architecture: self-hosted Mosquitto for device messaging, Supabase for data plane and dashboards
+- ☑ Self-hosted Mosquitto from day one (no managed-broker stepping-stone)
+- ☑ Zones included in v6000 (single clean migration, not deferred)
+- ☑ Four-state NaCTSO alert taxonomy: Lockdown / Invacuation / Evacuation / All Clear, plus Drill
+- ☑ Two-factor on alert initiation: opt-in per school, default ON
+- ☑ Evacuation overrides Lockdown
+- ☑ Side-by-side model: v5 (trial, no commercial customers) and v6 (commercial product) run as wholly separate stacks; no migration is planned
+- ☑ Commercial dashboard URL: `console.classroomsounds.co.uk`
+
+**Commercial gating outstanding (see §8a):**
+- ☐ Product liability insurance quote obtained
+- ☐ First MAT design partner engaged
+- ☐ Indemnity contract template drafted by solicitor
+
+**Engineering decisions still open (see §11):**
+- ☐ Mosquitto auth: passwords vs client certs (recommend: passwords for v6000)
+- ☐ Public read-only fleet-status API endpoint
+- ☐ Telemetry retention beyond 13 months
+- ☐ Hardware-button lockdown trigger
+
+**Operational state of the v5 trial stack (parallel, unaffected by this plan):**
+- Firmware Holly v5091 (dormant LEDs off, mic-floor filter fix) deployed via OTA
+- Apps Script v56 (flapping fix: numeric ms timestamps, cache invalidation, lock timeout) deployed
+- Admin v2.8.5 (panel auto-refresh fix) deployed to Vercel
+- Trial fleet healthy as of last review
