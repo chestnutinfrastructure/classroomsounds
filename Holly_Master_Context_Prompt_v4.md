@@ -428,21 +428,30 @@ Original list preserved + new entries from this session.
 20. **(NEW) Render path vs reporting path divergence is the recurring pattern.** Sleep mode rendering rainbow but `sleep=N` in diagnostics; Holly Hop rendering rainbow during learning but `getCurrentLEDState` returning "Charging". Fixed for those specific cases but the architectural fix (single state machine consulted by both render and reporter) is still pending.
 21. **(NEW) Aspirational green target requires deliberate UX framing.** The v5081 / v5082 change moves green ~2 dB tighter on every calibration-complete device. Tell heads explicitly: this is by design, not a regression.
 22. **(NEW) Never paste secrets into chat.** PATs, service-role keys, OAuth tokens — they live in environment variables / connector flows, not in conversation. If one slips out: revoke immediately, generate a new one, do not re-paste.
+23. **(NEW, 8 May 2026) Cross-stack flapping always has a top suspect: timestamp drift.** When devices appear to flip online ↔ offline with no device-side change, check the SAME pair first: (a) the dashboard's online-detection path uses a different field than the row's displayed-last-seen, OR (b) the parser interprets the timestamp string in a different timezone than the writer. The Holly Hhd "30 minutes ago" vs "16:01:34" symptom was a textbook example — Apps Script wrote the string in script timezone, browser parsed `new Date("…")` as local time, and isDeviceOnline() preferred numeric `_ms` columns that were never being written. Fix: write numeric ms-epoch timestamps server-side; let the dashboard prefer those. Apps Script v56, see Holly_Migration_Plan_v6000.md §0a for the broader pattern. Also caught: heartbeat-only periods (dormant/break/lunch) were leaving the dashboard cache stale because cache.remove was gated on `appended` rather than firing on every registry update — a different mechanism producing the same symptom. Both must be checked.
 
 ---
 
-## Files Typically Attached Per Session
+## Files Typically Attached Per Session (v5 trial stack)
 
 | File | Purpose |
 |---|---|
-| `Holly_v5082.ino` | Current dev firmware (cumulative; supersedes v5080/v5081) |
-| `captive_portal.h/.cpp/_html.h` | Portal module (unchanged in v5080-v5082) |
-| `AppsScript_v52_FULL.txt` | Backend (awaiting deploy) |
-| `index_v12.22.html` | Staff dashboard (awaiting deploy) |
-| `admin_v2.7.0.html` | Admin dashboard (awaiting deploy) |
+| `Holly_v5091.ino` | Current trial firmware (deployed; supersedes v5085/v5090) |
+| `captive_portal.h/.cpp/_html.h` | Portal module |
+| `AppsScript_v56_FULL.txt` | Backend (deployed; supersedes v55) |
+| `admin_v2.8.5.html` | Admin dashboard (deployed; supersedes v2.8.4) |
+| `release-firmware.py` | Build script — extracts FW_VERSION, names .bin, creates GitHub release, updates manifest.json atomically |
 | `Logs.xlsx` | Sheet export — registry, Events tab, school data, summary cache. **Pull this when diagnosing field issues.** |
 
 All current files are on branch `claude/classroom-sounds-xYsZL` in the GitHub repo.
+
+## Files for the v6 commercial product
+
+| File | Purpose |
+|---|---|
+| `Holly_Migration_Plan_v6000.md` | **Authoritative spec for the commercial product.** Architecture, schema, MQTT topics, firmware structure, alert state machine, rollout phases, security & compliance. |
+
+v6 work lives on branch `v6000-build` (created 8 May 2026). v5 and v6 are wholly separate stacks — see §0 of the migration plan. **Do not cross-pollinate fixes between branches without explicit reason.**
 
 ---
 
@@ -458,11 +467,13 @@ All current files are on branch `claude/classroom-sounds-xYsZL` in the GitHub re
 **Before doing anything else:**
 
 1. Read this prompt fully.
-2. Confirm with Dan what's actually broken right now — this list will be out of date the day after it's written.
-3. Pull a fresh `Logs.xlsx` if diagnosing field issues — it's the source of truth, not the prompt.
-4. Don't fix things that aren't broken just because the prompt mentioned them once.
-5. Bench-test EVERY firmware change on EF3E90 before OTA to the Lyppard fleet.
-6. **Supabase MCP is wired up via the Claude.ai web Connectors panel.** If `list_projects` works, you have direct DB access. Use it carefully — read-only by default, ask before any `apply_migration` or `execute_sql` that writes.
+2. **Confirm which stack you're working on:** v5 trial (firmware v5091, Apps Script v56, admin v2.8.5, branch `claude/classroom-sounds-xYsZL`) or v6 commercial (greenfield Supabase/MQTT, branch `v6000-build`, spec in `Holly_Migration_Plan_v6000.md`). They are wholly separate products — do not mix work between them in a single chat.
+3. Confirm with Dan what's actually broken or in-flight right now — this list will be out of date the day after it's written.
+4. For v5 work: pull a fresh `Logs.xlsx` if diagnosing field issues — it's the source of truth, not the prompt.
+5. For v5 work: bench-test EVERY firmware change on EF3E90 before OTA to the trial fleet. v5 receives bug-fix maintenance only — no new features.
+6. For v6 work: read `Holly_Migration_Plan_v6000.md` end-to-end before writing anything. The spec is the source of truth. v6 trial schools do not exist — there is no field fleet to bench against, only Dan's bench units.
+7. Don't fix things that aren't broken just because the prompt mentioned them once.
+8. **Supabase MCP is wired up via the Claude.ai web Connectors panel.** If `list_projects` works, you have direct DB access. For v6 work, the project ref will be in `.mcp.json` at the repo root — scoped read-only by default. Use the `-write` MCP entry only when explicitly applying migrations or deploying Edge Functions, and ask before doing so.
 
 ---
 
