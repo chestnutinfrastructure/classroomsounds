@@ -12,6 +12,10 @@ credentials/
 credentials.*
 *.pat
 *.token
+# Claude Code local settings — gitignored variant holds machine-local
+# secrets like SUPABASE_PAT. The committed .claude/settings.json must
+# NEVER contain secrets.
+.claude/settings.local.json
 
 # Build artefacts (Arduino, Python).
 __pycache__/
