@@ -1,0 +1,34 @@
+# Secrets — NEVER commit these.
+# SUPABASE_PAT and any other access tokens live in:
+#   - CLI: shell env (~/.zshrc, ~/.bashrc)
+#   - Web Claude Code: project Environment Variables panel
+# .mcp.json references them via ${VAR_NAME} interpolation, never inline.
+.env
+.env.*
+*.env
+secrets/
+secrets.*
+credentials/
+credentials.*
+*.pat
+*.token
+
+# Build artefacts (Arduino, Python).
+__pycache__/
+*.pyc
+build/
+*.bin
+!Holly_RDiQ5000_*.bin  # release-firmware.py produces canonically-named bins
+                       # in the firmware directory — keep them visible during
+                       # the release flow even though they're uploaded to
+                       # GitHub Releases (not strictly needed in git).
+
+# OS noise.
+.DS_Store
+Thumbs.db
+
+# IDE configs (don't commit personal settings).
+.vscode/
+.idea/
+*.swp
+*.swo

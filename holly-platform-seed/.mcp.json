@@ -1,0 +1,25 @@
+{
+  "_comment_purpose": "Per-repo MCP configuration for Claude Code (CLI + web). Auto-loaded when Claude Code opens this repo. See Holly_Migration_Plan_v6000.md §8 for context.",
+  "_comment_secret": "SUPABASE_PAT must be set as a project-level environment variable in the Claude Code web UI (Settings → Project → Environment Variables) OR exported in the shell for CLI use. NEVER commit the PAT itself to this file.",
+  "_comment_scoping": "project_ref in the URL pins each MCP entry to a single Supabase project. The same PAT is account-wide and works for all your projects, but project_ref enforces the boundary at the MCP layer so a session for one project cannot touch another.",
+  "_comment_readwrite": "Two entries per project. Day-to-day work uses the read-only entry. Migrations and Edge Function deploys explicitly invoke tools from the -write entry. This prevents accidental mutation during exploratory work.",
+
+  "mcpServers": {
+    "supabase-holly-v6": {
+      "_comment": "v6 commercial product. Project does not exist yet — fill in project_ref after Phase 0 step 1 (create Supabase project for the Holly commercial line).",
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=<HOLLY_V6_PROJECT_REF>&read_only=true",
+      "headers": {
+        "Authorization": "Bearer ${SUPABASE_PAT}"
+      }
+    },
+    "supabase-holly-v6-write": {
+      "_comment": "WRITE access to v6 project. Use only when applying migrations or deploying Edge Functions. Ask before invoking.",
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=<HOLLY_V6_PROJECT_REF>",
+      "headers": {
+        "Authorization": "Bearer ${SUPABASE_PAT}"
+      }
+    }
+  }
+}
