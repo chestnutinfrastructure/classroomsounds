@@ -1,0 +1,41 @@
+# Secrets — NEVER commit these.
+# SUPABASE_PAT and any other access tokens live in:
+#   - CLI: shell env (~/.zshrc, ~/.bashrc)
+#   - Web Claude Code: project Environment Variables panel
+# .mcp.json references them via ${VAR_NAME} interpolation, never inline.
+.env
+.env.*
+*.env
+secrets/
+secrets.*
+credentials/
+credentials.*
+*.pat
+*.token
+
+# Claude Code local settings — gitignored variant holds machine-local
+# secrets like SUPABASE_PAT. The committed .claude/settings.json must
+# NEVER contain secrets.
+.claude/settings.local.json
+
+# Build artefacts.
+__pycache__/
+*.pyc
+build/
+.pio/                      # PlatformIO build output
+*.bin
+!firmware/Holly_v6*_*.bin  # release-firmware.py canonical names — keep visible
+
+# Node / Deno
+node_modules/
+.deno/
+
+# OS noise.
+.DS_Store
+Thumbs.db
+
+# IDE configs (don't commit personal settings).
+.vscode/
+.idea/
+*.swp
+*.swo
